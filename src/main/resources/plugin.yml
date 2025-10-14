@@ -1,0 +1,6 @@
+name: PopcornSMP
+version: 1.0.0
+main: de.popcornsmp.popcornsmp.PopcornSMPPlugin
+author: PopcornSMP
+api-version: "1.21"
+description: First-join random spawn and branding for PopcornSMP
