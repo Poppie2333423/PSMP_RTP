@@ -18,8 +18,6 @@ import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 
 import java.util.Collections;
 import java.util.EnumSet;
@@ -111,7 +109,10 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         }
 
         if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()) {
-            event.setTo(from);
+            Location freezePosition = from.clone();
+            freezePosition.setYaw(to.getYaw());
+            freezePosition.setPitch(to.getPitch());
+            event.setTo(freezePosition);
             cancelPendingTeleport(playerId);
             frozenPlayers.remove(playerId);
             player.sendMessage(PREFIX + ChatColor.RED + "Random Teleport abgebrochen, weil du dich bewegt hast.");
@@ -158,14 +159,13 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                     cancel();
                     pendingRandomTeleports.remove(playerId);
                     frozenPlayers.remove(playerId);
+                    player.resetTitle();
                     prepareRandomTeleport(player);
                     return;
                 }
 
-                Component countdown = Component.text("Random Teleport in ", NamedTextColor.GRAY)
-                        .append(Component.text(secondsLeft, NamedTextColor.GOLD))
-                        .append(Component.text("s", NamedTextColor.GRAY));
-                player.sendActionBar(countdown);
+                player.sendTitle(ChatColor.GOLD + String.valueOf(secondsLeft),
+                        ChatColor.GRAY + "Random Teleport startet gleich", 0, 20, 0);
                 secondsLeft--;
             }
 
@@ -173,6 +173,9 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 cancel();
                 pendingRandomTeleports.remove(playerId);
                 frozenPlayers.remove(playerId);
+                if (player.isOnline()) {
+                    player.resetTitle();
+                }
             }
         }.runTaskTimer(this, 0L, 20L);
 
