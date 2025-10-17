@@ -52,12 +52,13 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
         if (!player.hasPlayedBefore()) {
             World world = Objects.requireNonNull(Bukkit.getWorlds().get(0), "No default world loaded");
             Location spawn = findSpawnLocation(world);
+            boolean randomSpawn = spawn != null;
 
-            if (spawn != null) {
-                teleportPlayer(player, spawn);
+            if (!randomSpawn) {
+                spawn = world.getSpawnLocation();
             }
 
-            sendWelcomeExperience(player);
+            teleportPlayer(player, spawn, randomSpawn);
         }
     }
 
@@ -66,14 +67,25 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
         event.setFormat(PREFIX + ChatColor.GRAY + "%1$s" + ChatColor.DARK_GRAY + ": " + ChatColor.WHITE + "%2$s");
     }
 
-    private void teleportPlayer(Player player, Location location) {
+    private void teleportPlayer(Player player, Location location, boolean randomSpawn) {
         World world = location.getWorld();
         if (world == null) {
             return;
         }
 
-        world.getChunkAtAsync(location.getBlockX() >> 4, location.getBlockZ() >> 4).thenAccept(chunk -> {
-            Bukkit.getScheduler().runTask(this, () -> player.teleport(location));
+        Location target = location.clone();
+        world.getChunkAtAsync(target.getBlockX() >> 4, target.getBlockZ() >> 4).thenAccept(chunk ->
+                Bukkit.getScheduler().runTask(this, () -> {
+                    player.teleport(target);
+                    sendWelcomeExperience(player, target, randomSpawn);
+                })
+        ).exceptionally(throwable -> {
+            getLogger().warning("Failed to prepare random spawn chunk: " + throwable.getMessage());
+            Bukkit.getScheduler().runTask(this, () -> {
+                player.teleport(world.getSpawnLocation());
+                sendWelcomeExperience(player, world.getSpawnLocation(), false);
+            });
+            return null;
         });
     }
 
@@ -94,7 +106,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
         }
 
         getLogger().warning("No safe spawn found within attempts; using world spawn location.");
-        return world.getSpawnLocation();
+        return null;
     }
 
     private boolean isSafeBlock(Material material) {
@@ -104,10 +116,21 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
         return !UNSAFE_BLOCKS.contains(material);
     }
 
-    private void sendWelcomeExperience(Player player) {
+    private void sendWelcomeExperience(Player player, Location location, boolean randomSpawn) {
         player.sendTitle(ChatColor.GOLD + "Willkommen auf PopcornSMP", ChatColor.YELLOW + "Viel Spaß auf PopcornSMP.de!", 10, 70, 20);
         player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, SoundCategory.MASTER, 1.0f, 1.0f);
         player.sendMessage(PREFIX + ChatColor.GRAY + "Willkommen " + ChatColor.GOLD + player.getName() + ChatColor.GRAY + " auf PopcornSMP.de!");
+        if (randomSpawn) {
+            player.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest an einer zufälligen Position bei "
+                    + ChatColor.GOLD + location.getBlockX() + ChatColor.GRAY + ", "
+                    + ChatColor.GOLD + location.getBlockY() + ChatColor.GRAY + ", "
+                    + ChatColor.GOLD + location.getBlockZ() + ChatColor.GRAY + " in der Welt gespawnt.");
+        } else {
+            player.sendMessage(PREFIX + ChatColor.GRAY + "Wir konnten dich sicher am Welten-Spawn platzieren ("
+                    + ChatColor.GOLD + location.getBlockX() + ChatColor.GRAY + ", "
+                    + ChatColor.GOLD + location.getBlockY() + ChatColor.GRAY + ", "
+                    + ChatColor.GOLD + location.getBlockZ() + ChatColor.GRAY + ").");
+        }
 
         spawnFirework(player.getLocation());
     }
