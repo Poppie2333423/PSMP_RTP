@@ -19,7 +19,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -37,7 +36,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     private static final int RTP_COUNTDOWN_SECONDS = 3;
     private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET
             + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
-    private static final double MOVEMENT_TOLERANCE = 0.01;
+    private static final double MOVEMENT_TOLERANCE = 0.5;
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
             Material.WATER,
@@ -54,7 +53,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     );
 
     private final Map<UUID, BukkitTask> pendingRandomTeleports = new HashMap<>();
-    private final Set<UUID> frozenPlayers = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Map<UUID, Location> frozenAnchors = new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {
@@ -67,7 +66,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     public void onDisable() {
         pendingRandomTeleports.values().forEach(BukkitTask::cancel);
         pendingRandomTeleports.clear();
-        frozenPlayers.clear();
+        frozenAnchors.clear();
     }
 
     @EventHandler
@@ -99,32 +98,27 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        if (!frozenPlayers.contains(playerId)) {
+        Location anchor = frozenAnchors.get(playerId);
+
+        if (anchor == null) {
             return;
         }
 
-        Location from = event.getFrom();
         Location to = event.getTo();
 
         if (to == null) {
             return;
         }
 
-        Location freezePosition = from.clone();
-        freezePosition.setYaw(to.getYaw());
-        freezePosition.setPitch(to.getPitch());
-        event.setTo(freezePosition);
+        double distanceSquared = anchor.distanceSquared(to);
 
-        double deltaX = Math.abs(from.getX() - to.getX());
-        double deltaY = Math.abs(from.getY() - to.getY());
-        double deltaZ = Math.abs(from.getZ() - to.getZ());
-
-        if (deltaX <= MOVEMENT_TOLERANCE && deltaY <= MOVEMENT_TOLERANCE && deltaZ <= MOVEMENT_TOLERANCE) {
+        if (distanceSquared <= MOVEMENT_TOLERANCE * MOVEMENT_TOLERANCE) {
             return;
         }
 
         cancelPendingTeleport(playerId);
-        frozenPlayers.remove(playerId);
+        frozenAnchors.remove(playerId);
+        player.resetTitle();
         player.sendMessage(PREFIX + ChatColor.RED + "Random Teleport abgebrochen, weil du dich bewegt hast.");
     }
 
@@ -147,7 +141,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         }
 
         player.sendMessage(PREFIX + ChatColor.GRAY + "Du wirst in " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " teleportiert. Bewege dich nicht!");
-        frozenPlayers.add(playerId);
+        frozenAnchors.put(playerId, player.getLocation().clone());
 
         BukkitTask task = new BukkitRunnable() {
             private int secondsLeft = RTP_COUNTDOWN_SECONDS;
@@ -159,7 +153,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                     return;
                 }
 
-                if (!frozenPlayers.contains(playerId)) {
+                if (!frozenAnchors.containsKey(playerId)) {
                     cancelAndCleanup();
                     return;
                 }
@@ -167,23 +161,23 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 if (secondsLeft <= 0) {
                     cancel();
                     pendingRandomTeleports.remove(playerId);
-                    frozenPlayers.remove(playerId);
+                    frozenAnchors.remove(playerId);
                     player.resetTitle();
                     prepareRandomTeleport(player);
                     return;
                 }
 
                 player.sendTitle(ChatColor.GOLD + "" + secondsLeft + ChatColor.GRAY + " Sekunden bis zum Teleport",
-                        ChatColor.YELLOW + "Bleib stehen!", 0, 20, 0);
-                float pitch = 1.0f + (RTP_COUNTDOWN_SECONDS - secondsLeft) * 0.1f;
-                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, SoundCategory.MASTER, 1.0f, pitch);
+                        "", 0, 20, 0);
+                float pitch = 1.0f + (RTP_COUNTDOWN_SECONDS - secondsLeft) * 0.15f;
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, SoundCategory.MASTER, 1.0f, pitch);
                 secondsLeft--;
             }
 
             private void cancelAndCleanup() {
                 cancel();
                 pendingRandomTeleports.remove(playerId);
-                frozenPlayers.remove(playerId);
+                frozenAnchors.remove(playerId);
                 if (player.isOnline()) {
                     player.resetTitle();
                 }
@@ -325,5 +319,6 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         if (task != null) {
             task.cancel();
         }
+        frozenAnchors.remove(playerId);
     }
 }
