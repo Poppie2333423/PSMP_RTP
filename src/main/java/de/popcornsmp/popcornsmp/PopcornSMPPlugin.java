@@ -375,10 +375,11 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         pendingTeleportTasks.put(playerId, task);
     }
 
-    private String buildJoinQuitMessage(Player player, ChatColor actionColor, String actionText) {
-        return ChatColor.DARK_GRAY + "[" + ChatColor.GOLD + player.getName() + ChatColor.DARK_GRAY + "] "
+    private Component buildJoinQuitMessage(Player player, ChatColor actionColor, String actionText) {
+        String legacyMessage = ChatColor.DARK_GRAY + "[" + ChatColor.GOLD + player.getName() + ChatColor.DARK_GRAY + "] "
                 + ChatColor.GRAY + "hat den Server " + actionColor + ChatColor.BOLD + actionText
                 + ChatColor.RESET + ChatColor.DARK_GRAY + "]";
+        return LEGACY_SERIALIZER.deserialize(legacyMessage);
     }
 
     private Component buildTeleportRequestMessage(Player requester) {
