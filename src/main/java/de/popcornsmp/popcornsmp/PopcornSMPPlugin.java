@@ -45,6 +45,9 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
     private static final double MOVEMENT_TOLERANCE = 0.5;
     private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
+    private static final Sound TELEPORT_SOUND = Sound.ENTITY_ENDERMAN_TELEPORT;
+    private static final float TELEPORT_SOUND_VOLUME = 1.0f;
+    private static final float TELEPORT_SOUND_PITCH = 1.2f;
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
             Material.WATER,
@@ -214,11 +217,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         player.sendMessage(PREFIX + ChatColor.GRAY + "Teleportanfrage an " + ChatColor.GOLD + target.getName()
                 + ChatColor.GRAY + " gesendet. Sie läuft in " + ChatColor.GOLD + TPA_REQUEST_TIMEOUT_SECONDS
                 + ChatColor.GRAY + " Sekunden ab.");
-        target.sendMessage(PREFIX + ChatColor.GOLD + player.getName() + ChatColor.GRAY
-                + " möchte sich zu dir teleportieren.");
-        target.sendMessage(buildTeleportRequestButtons());
-        target.sendMessage(PREFIX + ChatColor.GRAY + "Nutze " + ChatColor.GOLD + "/tpaccept"
-                + ChatColor.GRAY + " oder " + ChatColor.GOLD + "/tpdeny" + ChatColor.GRAY + ".");
+        target.sendMessage(buildTeleportRequestMessage(player));
         target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, SoundCategory.MASTER, 1.0f, 1.0f);
 
         new BukkitRunnable() {
@@ -370,7 +369,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         pendingTeleportTasks.put(playerId, task);
     }
 
-    private Component buildTeleportRequestButtons() {
+    private Component buildTeleportRequestMessage(Player requester) {
         Component prefixComponent = LEGACY_SERIALIZER.deserialize(PREFIX);
         Component acceptButton = Component.text("[ANNEHMEN]", NamedTextColor.GREEN)
                 .decoration(TextDecoration.BOLD, true)
@@ -381,11 +380,25 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 .clickEvent(ClickEvent.runCommand("/tpdeny"))
                 .hoverEvent(HoverEvent.showText(Component.text("Teleport ablehnen", NamedTextColor.RED)));
 
-        return prefixComponent
-                .append(Component.text(" "))
+        return Component.text()
+                .append(prefixComponent)
+                .append(Component.text(requester.getName(), NamedTextColor.GOLD))
+                .append(Component.text(" möchte sich zu dir teleportieren.", NamedTextColor.GRAY))
+                .append(Component.newline())
+                .append(Component.newline())
+                .append(LEGACY_SERIALIZER.deserialize(PREFIX))
                 .append(acceptButton)
                 .append(Component.text(" "))
-                .append(denyButton);
+                .append(denyButton)
+                .append(Component.newline())
+                .append(Component.newline())
+                .append(LEGACY_SERIALIZER.deserialize(PREFIX))
+                .append(Component.text("Nutze ", NamedTextColor.GRAY))
+                .append(Component.text("/tpaccept", NamedTextColor.GOLD))
+                .append(Component.text(" oder ", NamedTextColor.GRAY))
+                .append(Component.text("/tpdeny", NamedTextColor.GOLD))
+                .append(Component.text(".", NamedTextColor.GRAY))
+                .build();
     }
 
     private void prepareRandomTeleport(Player player) {
@@ -505,7 +518,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                             + ChatColor.GOLD + target.getBlockX() + ChatColor.GRAY + ", "
                             + ChatColor.GOLD + target.getBlockY() + ChatColor.GRAY + ", "
                             + ChatColor.GOLD + target.getBlockZ() + ChatColor.GRAY + " teleportiert.");
-                    player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, SoundCategory.MASTER, 1.0f, 1.2f);
+                    player.playSound(player.getLocation(), TELEPORT_SOUND, SoundCategory.MASTER,
+                            TELEPORT_SOUND_VOLUME, TELEPORT_SOUND_PITCH);
                 })
         ).exceptionally(throwable -> {
             getLogger().warning("Failed to prepare chunk for /rtp: " + throwable.getMessage());
@@ -537,7 +551,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                     requester.teleport(targetLocation);
                     requester.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest zu " + ChatColor.GOLD + target.getName()
                             + ChatColor.GRAY + " teleportiert.");
-                    requester.playSound(requester.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, SoundCategory.MASTER, 1.0f, 1.2f);
+                    requester.playSound(requester.getLocation(), TELEPORT_SOUND, SoundCategory.MASTER,
+                            TELEPORT_SOUND_VOLUME, TELEPORT_SOUND_PITCH);
                 })
         ).exceptionally(throwable -> {
             getLogger().warning("Failed to prepare chunk for /tpa: " + throwable.getMessage());
