@@ -8,3 +8,12 @@ commands:
   rtp:
     description: Teleportiert dich nach 3 Sekunden Wartezeit an eine zufällige Position.
     usage: /rtp
+  tpa:
+    description: Sendet eine Teleportanfrage an einen anderen Spieler.
+    usage: /tpa <Spieler>
+  tpaccept:
+    description: Akzeptiert die letzte Teleportanfrage.
+    usage: /tpaccept
+  tpdeny:
+    description: Lehnt die letzte Teleportanfrage ab.
+    usage: /tpdeny

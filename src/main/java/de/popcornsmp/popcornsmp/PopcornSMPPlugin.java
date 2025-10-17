@@ -34,6 +34,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     private static final int SPAWN_RADIUS = 10_000;
     private static final int MAX_SPAWN_ATTEMPTS = 40;
     private static final int RTP_COUNTDOWN_SECONDS = 3;
+    private static final int TPA_REQUEST_TIMEOUT_SECONDS = 60;
     private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET
             + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
     private static final double MOVEMENT_TOLERANCE = 0.5;
@@ -52,21 +53,28 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             Material.SOUL_CAMPFIRE
     );
 
-    private final Map<UUID, BukkitTask> pendingRandomTeleports = new HashMap<>();
+    private final Map<UUID, BukkitTask> pendingTeleportTasks = new HashMap<>();
     private final Map<UUID, Location> frozenAnchors = new ConcurrentHashMap<>();
+    private final Map<UUID, TeleportRequest> incomingTeleportRequests = new ConcurrentHashMap<>();
+    private final Map<UUID, TeleportRequest> outgoingTeleportRequests = new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {
         Bukkit.getPluginManager().registerEvents(this, this);
         Objects.requireNonNull(getCommand("rtp"), "Command /rtp not defined in plugin.yml").setExecutor(this);
+        Objects.requireNonNull(getCommand("tpa"), "Command /tpa not defined in plugin.yml").setExecutor(this);
+        Objects.requireNonNull(getCommand("tpaccept"), "Command /tpaccept not defined in plugin.yml").setExecutor(this);
+        Objects.requireNonNull(getCommand("tpdeny"), "Command /tpdeny not defined in plugin.yml").setExecutor(this);
         getLogger().info("PopcornSMP plugin enabled.");
     }
 
     @Override
     public void onDisable() {
-        pendingRandomTeleports.values().forEach(BukkitTask::cancel);
-        pendingRandomTeleports.clear();
+        pendingTeleportTasks.values().forEach(BukkitTask::cancel);
+        pendingTeleportTasks.clear();
         frozenAnchors.clear();
+        incomingTeleportRequests.clear();
+        outgoingTeleportRequests.clear();
     }
 
     @EventHandler
@@ -119,28 +127,194 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         cancelPendingTeleport(playerId);
         frozenAnchors.remove(playerId);
         player.resetTitle();
-        player.sendMessage(PREFIX + ChatColor.RED + "Random Teleport abgebrochen, weil du dich bewegt hast.");
+        player.sendMessage(PREFIX + ChatColor.RED + "Teleport abgebrochen, weil du dich bewegt hast.");
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!command.getName().equalsIgnoreCase("rtp")) {
-            return false;
-        }
+        String name = command.getName().toLowerCase();
 
+        return switch (name) {
+            case "rtp" -> handleRandomTeleportCommand(sender);
+            case "tpa" -> handleTeleportRequestCommand(sender, args);
+            case "tpaccept" -> handleTeleportAcceptCommand(sender);
+            case "tpdeny" -> handleTeleportDenyCommand(sender);
+            default -> false;
+        };
+    }
+
+    private boolean handleRandomTeleportCommand(CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage(ChatColor.RED + "Nur Spieler können diesen Befehl verwenden.");
             return true;
         }
 
-        UUID playerId = player.getUniqueId();
-
-        if (pendingRandomTeleports.containsKey(playerId)) {
+        if (pendingTeleportTasks.containsKey(player.getUniqueId())) {
             player.sendMessage(PREFIX + ChatColor.RED + "Ein Teleport läuft bereits – bitte warte einen Moment.");
             return true;
         }
 
-        player.sendMessage(PREFIX + ChatColor.GRAY + "Du wirst in " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " teleportiert. Bewege dich nicht!");
+        startTeleportCountdown(player, () -> prepareRandomTeleport(player));
+        return true;
+    }
+
+    private boolean handleTeleportRequestCommand(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(ChatColor.RED + "Nur Spieler können diesen Befehl verwenden.");
+            return true;
+        }
+
+        if (args.length != 1) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Verwendung: /tpa <Spieler>");
+            return true;
+        }
+
+        Player target = Bukkit.getPlayer(args[0]);
+
+        if (target == null || !target.isOnline()) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Dieser Spieler ist nicht online.");
+            return true;
+        }
+
+        if (target.equals(player)) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Du kannst dich nicht zu dir selbst teleportieren.");
+            return true;
+        }
+
+        TeleportRequest request = new TeleportRequest(player.getUniqueId(), target.getUniqueId(),
+                System.currentTimeMillis() + TPA_REQUEST_TIMEOUT_SECONDS * 1000L);
+
+        TeleportRequest previousIncoming = incomingTeleportRequests.put(target.getUniqueId(), request);
+        if (previousIncoming != null && !previousIncoming.requesterId.equals(player.getUniqueId())) {
+            Player previousRequester = Bukkit.getPlayer(previousIncoming.requesterId);
+            if (previousRequester != null) {
+                previousRequester.sendMessage(PREFIX + ChatColor.RED + "Deine Teleportanfrage an "
+                        + ChatColor.GOLD + target.getName() + ChatColor.RED + " wurde durch eine neue Anfrage ersetzt.");
+            }
+            outgoingTeleportRequests.remove(previousIncoming.requesterId);
+        }
+
+        TeleportRequest previousOutgoing = outgoingTeleportRequests.put(player.getUniqueId(), request);
+        if (previousOutgoing != null && !previousOutgoing.targetId.equals(target.getUniqueId())) {
+            incomingTeleportRequests.remove(previousOutgoing.targetId, previousOutgoing);
+            Player previousTarget = Bukkit.getPlayer(previousOutgoing.targetId);
+            if (previousTarget != null) {
+                previousTarget.sendMessage(PREFIX + ChatColor.RED + "Die Teleportanfrage von "
+                        + ChatColor.GOLD + player.getName() + ChatColor.RED + " wurde zurückgezogen.");
+            }
+        }
+
+        player.sendMessage(PREFIX + ChatColor.GRAY + "Teleportanfrage an " + ChatColor.GOLD + target.getName()
+                + ChatColor.GRAY + " gesendet. Sie läuft in " + ChatColor.GOLD + TPA_REQUEST_TIMEOUT_SECONDS
+                + ChatColor.GRAY + " Sekunden ab.");
+        target.sendMessage(PREFIX + ChatColor.GOLD + player.getName() + ChatColor.GRAY
+                + " möchte sich zu dir teleportieren. Nutze " + ChatColor.GOLD + "/tpaccept"
+                + ChatColor.GRAY + " oder " + ChatColor.GOLD + "/tpdeny" + ChatColor.GRAY + ".");
+        target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, SoundCategory.MASTER, 1.0f, 1.0f);
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                TeleportRequest current = incomingTeleportRequests.get(target.getUniqueId());
+                if (current != request) {
+                    return;
+                }
+
+                if (!request.isExpired()) {
+                    return;
+                }
+
+                incomingTeleportRequests.remove(target.getUniqueId(), request);
+                outgoingTeleportRequests.remove(player.getUniqueId(), request);
+
+                if (player.isOnline()) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "Deine Teleportanfrage an "
+                            + ChatColor.GOLD + target.getName() + ChatColor.RED + " ist abgelaufen.");
+                }
+
+                if (target.isOnline()) {
+                    target.sendMessage(PREFIX + ChatColor.RED + "Die Teleportanfrage von "
+                            + ChatColor.GOLD + player.getName() + ChatColor.RED + " ist abgelaufen.");
+                }
+            }
+        }.runTaskLater(this, TPA_REQUEST_TIMEOUT_SECONDS * 20L);
+
+        return true;
+    }
+
+    private boolean handleTeleportAcceptCommand(CommandSender sender) {
+        if (!(sender instanceof Player target)) {
+            sender.sendMessage(ChatColor.RED + "Nur Spieler können diesen Befehl verwenden.");
+            return true;
+        }
+
+        TeleportRequest request = incomingTeleportRequests.get(target.getUniqueId());
+
+        if (request == null) {
+            target.sendMessage(PREFIX + ChatColor.RED + "Du hast keine ausstehenden Teleportanfragen.");
+            return true;
+        }
+
+        if (request.isExpired()) {
+            cleanupTeleportRequest(request);
+            target.sendMessage(PREFIX + ChatColor.RED + "Die Teleportanfrage ist bereits abgelaufen.");
+            return true;
+        }
+
+        Player requester = Bukkit.getPlayer(request.requesterId);
+
+        if (requester == null || !requester.isOnline()) {
+            cleanupTeleportRequest(request);
+            target.sendMessage(PREFIX + ChatColor.RED + "Der anfragende Spieler ist nicht mehr online.");
+            return true;
+        }
+
+        if (pendingTeleportTasks.containsKey(requester.getUniqueId())) {
+            target.sendMessage(PREFIX + ChatColor.RED + "Dieser Spieler führt bereits einen Teleport aus.");
+            return true;
+        }
+
+        cleanupTeleportRequest(request);
+
+        requester.sendMessage(PREFIX + ChatColor.GRAY + "Deine Anfrage wurde von " + ChatColor.GOLD + target.getName()
+                + ChatColor.GRAY + " akzeptiert.");
+        target.sendMessage(PREFIX + ChatColor.GRAY + "Du hast die Teleportanfrage von " + ChatColor.GOLD + requester.getName()
+                + ChatColor.GRAY + " akzeptiert.");
+
+        startTeleportCountdown(requester, () -> teleportToPlayer(requester, target));
+        return true;
+    }
+
+    private boolean handleTeleportDenyCommand(CommandSender sender) {
+        if (!(sender instanceof Player target)) {
+            sender.sendMessage(ChatColor.RED + "Nur Spieler können diesen Befehl verwenden.");
+            return true;
+        }
+
+        TeleportRequest request = incomingTeleportRequests.get(target.getUniqueId());
+
+        if (request == null) {
+            target.sendMessage(PREFIX + ChatColor.RED + "Du hast keine ausstehenden Teleportanfragen.");
+            return true;
+        }
+
+        cleanupTeleportRequest(request);
+
+        Player requester = Bukkit.getPlayer(request.requesterId);
+        if (requester != null && requester.isOnline()) {
+            requester.sendMessage(PREFIX + ChatColor.RED + "Deine Teleportanfrage an " + ChatColor.GOLD + target.getName()
+                    + ChatColor.RED + " wurde abgelehnt.");
+        }
+
+        target.sendMessage(PREFIX + ChatColor.GRAY + "Du hast die Teleportanfrage abgelehnt.");
+        return true;
+    }
+
+    private void startTeleportCountdown(Player player, Runnable onSuccess) {
+        UUID playerId = player.getUniqueId();
+
+        player.sendMessage(PREFIX + ChatColor.GRAY + "Du wirst in " + ChatColor.GOLD + RTP_COUNTDOWN_SECONDS
+                + ChatColor.GRAY + " Sekunden teleportiert. Bewege dich nicht!");
         frozenAnchors.put(playerId, player.getLocation().clone());
 
         BukkitTask task = new BukkitRunnable() {
@@ -160,10 +334,10 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
 
                 if (secondsLeft <= 0) {
                     cancel();
-                    pendingRandomTeleports.remove(playerId);
+                    pendingTeleportTasks.remove(playerId);
                     frozenAnchors.remove(playerId);
                     player.resetTitle();
-                    prepareRandomTeleport(player);
+                    onSuccess.run();
                     return;
                 }
 
@@ -176,16 +350,15 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
 
             private void cancelAndCleanup() {
                 cancel();
-                pendingRandomTeleports.remove(playerId);
+                pendingTeleportTasks.remove(playerId);
                 frozenAnchors.remove(playerId);
                 if (player.isOnline()) {
                     player.resetTitle();
                 }
             }
-        }.runTaskTimer(this, 0L, 20L);
+        }.runTaskTimer(PopcornSMPPlugin.this, 0L, 20L);
 
-        pendingRandomTeleports.put(playerId, task);
-        return true;
+        pendingTeleportTasks.put(playerId, task);
     }
 
     private void prepareRandomTeleport(Player player) {
@@ -314,11 +487,65 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         });
     }
 
+    private void teleportToPlayer(Player requester, Player target) {
+        if (!requester.isOnline()) {
+            return;
+        }
+
+        if (!target.isOnline()) {
+            requester.sendMessage(PREFIX + ChatColor.RED + "Teleport fehlgeschlagen: Der Zielspieler ist nicht mehr online.");
+            return;
+        }
+
+        Location targetLocation = target.getLocation();
+        World world = targetLocation.getWorld();
+
+        if (world == null) {
+            requester.sendMessage(PREFIX + ChatColor.RED + "Teleport fehlgeschlagen: Welt nicht gefunden.");
+            return;
+        }
+
+        world.getChunkAtAsync(targetLocation.getBlockX() >> 4, targetLocation.getBlockZ() >> 4).thenAccept(chunk ->
+                Bukkit.getScheduler().runTask(this, () -> {
+                    requester.teleport(targetLocation);
+                    requester.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest zu " + ChatColor.GOLD + target.getName()
+                            + ChatColor.GRAY + " teleportiert.");
+                    requester.playSound(requester.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, SoundCategory.MASTER, 1.0f, 1.2f);
+                })
+        ).exceptionally(throwable -> {
+            getLogger().warning("Failed to prepare chunk for /tpa: " + throwable.getMessage());
+            Bukkit.getScheduler().runTask(this, () -> requester.sendMessage(PREFIX + ChatColor.RED
+                    + "Teleport fehlgeschlagen. Bitte versuche es erneut."));
+            return null;
+        });
+    }
+
+    private void cleanupTeleportRequest(TeleportRequest request) {
+        incomingTeleportRequests.remove(request.targetId, request);
+        outgoingTeleportRequests.remove(request.requesterId, request);
+    }
+
     private void cancelPendingTeleport(UUID playerId) {
-        BukkitTask task = pendingRandomTeleports.remove(playerId);
+        BukkitTask task = pendingTeleportTasks.remove(playerId);
         if (task != null) {
             task.cancel();
         }
         frozenAnchors.remove(playerId);
+    }
+
+    private static final class TeleportRequest {
+        private final UUID requesterId;
+        private final UUID targetId;
+        private final long expiresAt;
+
+        private TeleportRequest(UUID requesterId, UUID targetId, long expiresAt) {
+            this.requesterId = requesterId;
+            this.targetId = targetId;
+            this.expiresAt = expiresAt;
+        }
+
+        private boolean isExpired() {
+            return System.currentTimeMillis() > expiresAt;
+        }
     }
 }
