@@ -36,6 +36,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     private static final int MAX_SPAWN_ATTEMPTS = 40;
     private static final int RTP_COUNTDOWN_SECONDS = 3;
     private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
+    private static final double MOVEMENT_TOLERANCE = 0.01;
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
             Material.WATER,
@@ -108,15 +109,22 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             return;
         }
 
-        if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()) {
-            Location freezePosition = from.clone();
-            freezePosition.setYaw(to.getYaw());
-            freezePosition.setPitch(to.getPitch());
-            event.setTo(freezePosition);
-            cancelPendingTeleport(playerId);
-            frozenPlayers.remove(playerId);
-            player.sendMessage(PREFIX + ChatColor.RED + "Random Teleport abgebrochen, weil du dich bewegt hast.");
+        Location freezePosition = from.clone();
+        freezePosition.setYaw(to.getYaw());
+        freezePosition.setPitch(to.getPitch());
+        event.setTo(freezePosition);
+
+        double deltaX = Math.abs(from.getX() - to.getX());
+        double deltaY = Math.abs(from.getY() - to.getY());
+        double deltaZ = Math.abs(from.getZ() - to.getZ());
+
+        if (deltaX <= MOVEMENT_TOLERANCE && deltaY <= MOVEMENT_TOLERANCE && deltaZ <= MOVEMENT_TOLERANCE) {
+            return;
         }
+
+        cancelPendingTeleport(playerId);
+        frozenPlayers.remove(playerId);
+        player.sendMessage(PREFIX + ChatColor.RED + "Random Teleport abgebrochen, weil du dich bewegt hast.");
     }
 
     @Override
@@ -137,7 +145,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             return true;
         }
 
-        player.sendMessage(PREFIX + ChatColor.GRAY + "Bitte bleib " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " still für den Random Teleport.");
+        player.sendMessage(PREFIX + ChatColor.GRAY + "Du wirst in " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " teleportiert. Bewege dich nicht!");
         frozenPlayers.add(playerId);
 
         BukkitTask task = new BukkitRunnable() {
@@ -164,8 +172,10 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                     return;
                 }
 
-                player.sendTitle(ChatColor.GOLD + String.valueOf(secondsLeft),
-                        ChatColor.GRAY + "Random Teleport startet gleich", 0, 20, 0);
+                player.sendTitle(ChatColor.GOLD + secondsLeft + ChatColor.GRAY + " Sekunden bis zum Teleport",
+                        ChatColor.YELLOW + "Bleib stehen!", 0, 20, 0);
+                float pitch = 1.0f + (RTP_COUNTDOWN_SECONDS - secondsLeft) * 0.1f;
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, SoundCategory.MASTER, 1.0f, pitch);
                 secondsLeft--;
             }
 
