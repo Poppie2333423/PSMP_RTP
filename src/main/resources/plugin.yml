@@ -4,3 +4,7 @@ main: de.popcornsmp.popcornsmp.PopcornSMPPlugin
 author: PopcornSMP
 api-version: "1.21"
 description: First-join random spawn and branding for PopcornSMP
+commands:
+  rtp:
+    description: Teleportiert dich nach 3 Sekunden Wartezeit an eine zufällige Position.
+    usage: /rtp

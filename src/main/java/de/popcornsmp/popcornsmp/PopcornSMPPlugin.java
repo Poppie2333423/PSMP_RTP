@@ -2,6 +2,9 @@ package de.popcornsmp.popcornsmp;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
@@ -9,19 +12,27 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
-public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
+public final class PopcornSMPPlugin extends JavaPlugin implements Listener, CommandExecutor {
 
     private static final int SPAWN_RADIUS = 10_000;
     private static final int MAX_SPAWN_ATTEMPTS = 40;
+    private static final long RTP_DELAY_TICKS = 60L;
     private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
@@ -38,10 +49,21 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
             Material.SOUL_CAMPFIRE
     );
 
+    private final Map<UUID, BukkitTask> pendingRandomTeleports = new HashMap<>();
+    private final Set<UUID> frozenPlayers = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
     @Override
     public void onEnable() {
         Bukkit.getPluginManager().registerEvents(this, this);
+        Objects.requireNonNull(getCommand("rtp"), "Command /rtp not defined in plugin.yml").setExecutor(this);
         getLogger().info("PopcornSMP plugin enabled.");
+    }
+
+    @Override
+    public void onDisable() {
+        pendingRandomTeleports.values().forEach(BukkitTask::cancel);
+        pendingRandomTeleports.clear();
+        frozenPlayers.clear();
     }
 
     @EventHandler
@@ -65,6 +87,71 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         event.setFormat(PREFIX + ChatColor.GRAY + "%1$s" + ChatColor.DARK_GRAY + ": " + ChatColor.WHITE + "%2$s");
+    }
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        if (!frozenPlayers.contains(playerId)) {
+            return;
+        }
+
+        Location from = event.getFrom();
+        Location to = event.getTo();
+
+        if (to == null) {
+            return;
+        }
+
+        if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()) {
+            event.setTo(from);
+            cancelPendingTeleport(playerId);
+            frozenPlayers.remove(playerId);
+            player.sendMessage(PREFIX + ChatColor.RED + "Teleport abgebrochen, weil du dich bewegt hast.");
+        }
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!command.getName().equalsIgnoreCase("rtp")) {
+            return false;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(ChatColor.RED + "Nur Spieler können diesen Befehl verwenden.");
+            return true;
+        }
+
+        UUID playerId = player.getUniqueId();
+
+        if (pendingRandomTeleports.containsKey(playerId)) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Ein Teleport läuft bereits – bitte warte einen Moment.");
+            return true;
+        }
+
+        Location target = findSpawnLocation(player.getWorld());
+
+        if (target == null) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Es konnte aktuell keine sichere Position gefunden werden. Versuche es später erneut.");
+            return true;
+        }
+
+        player.sendMessage(PREFIX + ChatColor.GRAY + "Bitte bleib " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " still für den Zufallsteleport.");
+        frozenPlayers.add(playerId);
+
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(this, () -> {
+            pendingRandomTeleports.remove(playerId);
+            frozenPlayers.remove(playerId);
+            if (!player.isOnline()) {
+                return;
+            }
+            performRandomTeleport(player, target);
+        }, RTP_DELAY_TICKS);
+
+        pendingRandomTeleports.put(playerId, task);
+        return true;
     }
 
     private void teleportPlayer(Player player, Location location, boolean randomSpawn) {
@@ -153,5 +240,35 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener {
                     .build());
             firework.setFireworkMeta(meta);
         });
+    }
+
+    private void performRandomTeleport(Player player, Location target) {
+        World world = target.getWorld();
+        if (world == null) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Teleport fehlgeschlagen: Welt nicht gefunden.");
+            return;
+        }
+
+        world.getChunkAtAsync(target.getBlockX() >> 4, target.getBlockZ() >> 4).thenAccept(chunk ->
+                Bukkit.getScheduler().runTask(this, () -> {
+                    player.teleport(target);
+                    player.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest zu einer zufälligen Position bei "
+                            + ChatColor.GOLD + target.getBlockX() + ChatColor.GRAY + ", "
+                            + ChatColor.GOLD + target.getBlockY() + ChatColor.GRAY + ", "
+                            + ChatColor.GOLD + target.getBlockZ() + ChatColor.GRAY + " teleportiert.");
+                    player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, SoundCategory.MASTER, 1.0f, 1.2f);
+                })
+        ).exceptionally(throwable -> {
+            getLogger().warning("Failed to prepare chunk for /rtp: " + throwable.getMessage());
+            Bukkit.getScheduler().runTask(this, () -> player.sendMessage(PREFIX + ChatColor.RED + "Teleport fehlgeschlagen. Bitte versuche es erneut."));
+            return null;
+        });
+    }
+
+    private void cancelPendingTeleport(UUID playerId) {
+        BukkitTask task = pendingRandomTeleports.remove(playerId);
+        if (task != null) {
+            task.cancel();
+        }
     }
 }
