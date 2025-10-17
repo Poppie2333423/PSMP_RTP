@@ -13,9 +13,13 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 
 import java.util.Collections;
 import java.util.EnumSet;
@@ -32,7 +36,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
 
     private static final int SPAWN_RADIUS = 10_000;
     private static final int MAX_SPAWN_ATTEMPTS = 40;
-    private static final long RTP_DELAY_TICKS = 60L;
+    private static final int RTP_COUNTDOWN_SECONDS = 3;
     private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
@@ -80,6 +84,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 spawn = world.getSpawnLocation();
             }
 
+            player.getInventory().addItem(new ItemStack(Material.BREAD, 16));
             teleportPlayer(player, spawn, randomSpawn);
         }
     }
@@ -109,7 +114,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             event.setTo(from);
             cancelPendingTeleport(playerId);
             frozenPlayers.remove(playerId);
-            player.sendMessage(PREFIX + ChatColor.RED + "Teleport abgebrochen, weil du dich bewegt hast.");
+            player.sendMessage(PREFIX + ChatColor.RED + "Random Teleport abgebrochen, weil du dich bewegt hast.");
         }
     }
 
@@ -131,27 +136,63 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             return true;
         }
 
+        player.sendMessage(PREFIX + ChatColor.GRAY + "Bitte bleib " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " still für den Random Teleport.");
+        frozenPlayers.add(playerId);
+
+        BukkitTask task = new BukkitRunnable() {
+            private int secondsLeft = RTP_COUNTDOWN_SECONDS;
+
+            @Override
+            public void run() {
+                if (!player.isOnline()) {
+                    cancelAndCleanup();
+                    return;
+                }
+
+                if (!frozenPlayers.contains(playerId)) {
+                    cancelAndCleanup();
+                    return;
+                }
+
+                if (secondsLeft <= 0) {
+                    cancel();
+                    pendingRandomTeleports.remove(playerId);
+                    frozenPlayers.remove(playerId);
+                    prepareRandomTeleport(player);
+                    return;
+                }
+
+                Component countdown = Component.text("Random Teleport in ", NamedTextColor.GRAY)
+                        .append(Component.text(secondsLeft, NamedTextColor.GOLD))
+                        .append(Component.text("s", NamedTextColor.GRAY));
+                player.sendActionBar(countdown);
+                secondsLeft--;
+            }
+
+            private void cancelAndCleanup() {
+                cancel();
+                pendingRandomTeleports.remove(playerId);
+                frozenPlayers.remove(playerId);
+            }
+        }.runTaskTimer(this, 0L, 20L);
+
+        pendingRandomTeleports.put(playerId, task);
+        return true;
+    }
+
+    private void prepareRandomTeleport(Player player) {
+        if (!player.isOnline()) {
+            return;
+        }
+
         Location target = findSpawnLocation(player.getWorld());
 
         if (target == null) {
             player.sendMessage(PREFIX + ChatColor.RED + "Es konnte aktuell keine sichere Position gefunden werden. Versuche es später erneut.");
-            return true;
+            return;
         }
 
-        player.sendMessage(PREFIX + ChatColor.GRAY + "Bitte bleib " + ChatColor.GOLD + "3 Sekunden" + ChatColor.GRAY + " still für den Zufallsteleport.");
-        frozenPlayers.add(playerId);
-
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(this, () -> {
-            pendingRandomTeleports.remove(playerId);
-            frozenPlayers.remove(playerId);
-            if (!player.isOnline()) {
-                return;
-            }
-            performRandomTeleport(player, target);
-        }, RTP_DELAY_TICKS);
-
-        pendingRandomTeleports.put(playerId, task);
-        return true;
+        performRandomTeleport(player, target);
     }
 
     private void teleportPlayer(Player player, Location location, boolean randomSpawn) {
@@ -208,7 +249,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, SoundCategory.MASTER, 1.0f, 1.0f);
         player.sendMessage(PREFIX + ChatColor.GRAY + "Willkommen " + ChatColor.GOLD + player.getName() + ChatColor.GRAY + " auf PopcornSMP.de!");
         if (randomSpawn) {
-            player.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest an einer zufälligen Position bei "
+            player.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest durch einen Random Teleport zur Position "
                     + ChatColor.GOLD + location.getBlockX() + ChatColor.GRAY + ", "
                     + ChatColor.GOLD + location.getBlockY() + ChatColor.GRAY + ", "
                     + ChatColor.GOLD + location.getBlockZ() + ChatColor.GRAY + " in der Welt gespawnt.");
@@ -252,7 +293,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         world.getChunkAtAsync(target.getBlockX() >> 4, target.getBlockZ() >> 4).thenAccept(chunk ->
                 Bukkit.getScheduler().runTask(this, () -> {
                     player.teleport(target);
-                    player.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest zu einer zufälligen Position bei "
+                    player.sendMessage(PREFIX + ChatColor.GRAY + "Du wurdest durch einen Random Teleport zur Position "
                             + ChatColor.GOLD + target.getBlockX() + ChatColor.GRAY + ", "
                             + ChatColor.GOLD + target.getBlockY() + ChatColor.GRAY + ", "
                             + ChatColor.GOLD + target.getBlockZ() + ChatColor.GRAY + " teleportiert.");
