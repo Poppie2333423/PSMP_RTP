@@ -371,6 +371,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
 
     private Component buildTeleportRequestMessage(Player requester) {
         Component prefixComponent = LEGACY_SERIALIZER.deserialize(PREFIX);
+        Component separator = LEGACY_SERIALIZER.deserialize(ChatColor.DARK_GRAY + "" + ChatColor.STRIKETHROUGH
+                + "------------------------------");
         Component acceptButton = Component.text("[ANNEHMEN]", NamedTextColor.GREEN)
                 .decoration(TextDecoration.BOLD, true)
                 .clickEvent(ClickEvent.runCommand("/tpaccept"))
@@ -381,6 +383,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 .hoverEvent(HoverEvent.showText(Component.text("Teleport ablehnen", NamedTextColor.RED)));
 
         return Component.text()
+                .append(separator)
+                .append(Component.newline())
                 .append(prefixComponent)
                 .append(Component.text(requester.getName(), NamedTextColor.GOLD))
                 .append(Component.text(" möchte sich zu dir teleportieren.", NamedTextColor.GRAY))
@@ -398,6 +402,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 .append(Component.text(" oder ", NamedTextColor.GRAY))
                 .append(Component.text("/tpdeny", NamedTextColor.GOLD))
                 .append(Component.text(".", NamedTextColor.GRAY))
+                .append(Component.newline())
+                .append(separator)
                 .build();
     }
 
