@@ -376,9 +376,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     }
 
     private Component buildJoinQuitMessage(Player player, ChatColor actionColor, String actionText) {
-        String legacyMessage = ChatColor.DARK_GRAY + "[" + ChatColor.GOLD + player.getName() + ChatColor.DARK_GRAY + "] "
-                + ChatColor.GRAY + "hat den Server " + actionColor + ChatColor.BOLD + actionText
-                + ChatColor.RESET + ChatColor.DARK_GRAY + "]";
+        String legacyMessage = ChatColor.GOLD + player.getName() + ChatColor.GRAY + " hat den Server "
+                + actionColor + ChatColor.BOLD + actionText + ChatColor.RESET;
         return LEGACY_SERIALIZER.deserialize(legacyMessage);
     }
 
