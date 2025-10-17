@@ -35,7 +35,8 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     private static final int SPAWN_RADIUS = 10_000;
     private static final int MAX_SPAWN_ATTEMPTS = 40;
     private static final int RTP_COUNTDOWN_SECONDS = 3;
-    private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
+    private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET
+            + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
     private static final double MOVEMENT_TOLERANCE = 0.01;
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
@@ -172,7 +173,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                     return;
                 }
 
-                player.sendTitle(ChatColor.GOLD + secondsLeft + ChatColor.GRAY + " Sekunden bis zum Teleport",
+                player.sendTitle(ChatColor.GOLD + "" + secondsLeft + ChatColor.GRAY + " Sekunden bis zum Teleport",
                         ChatColor.YELLOW + "Bleib stehen!", 0, 20, 0);
                 float pitch = 1.0f + (RTP_COUNTDOWN_SECONDS - secondsLeft) * 0.1f;
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, SoundCategory.MASTER, 1.0f, pitch);
