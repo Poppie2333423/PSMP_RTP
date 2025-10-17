@@ -19,6 +19,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -90,7 +91,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        event.joinMessage(null);
+        event.joinMessage(buildJoinQuitMessage(player, ChatColor.GREEN, "BETRETEN"));
 
         if (!player.hasPlayedBefore()) {
             World world = Objects.requireNonNull(Bukkit.getWorlds().get(0), "No default world loaded");
@@ -104,6 +105,11 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
             player.getInventory().addItem(new ItemStack(Material.BREAD, 16));
             teleportPlayer(player, spawn, randomSpawn);
         }
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        event.quitMessage(buildJoinQuitMessage(event.getPlayer(), ChatColor.RED, "VERLASSEN"));
     }
 
     @EventHandler
@@ -367,6 +373,12 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         }.runTaskTimer(PopcornSMPPlugin.this, 0L, 20L);
 
         pendingTeleportTasks.put(playerId, task);
+    }
+
+    private String buildJoinQuitMessage(Player player, ChatColor actionColor, String actionText) {
+        return ChatColor.DARK_GRAY + "[" + ChatColor.GOLD + player.getName() + ChatColor.DARK_GRAY + "] "
+                + ChatColor.GRAY + "hat den Server " + actionColor + ChatColor.BOLD + actionText
+                + ChatColor.RESET + ChatColor.DARK_GRAY + "]";
     }
 
     private Component buildTeleportRequestMessage(Player requester) {
