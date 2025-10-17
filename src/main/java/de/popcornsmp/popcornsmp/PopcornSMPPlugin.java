@@ -1,5 +1,11 @@
 package de.popcornsmp.popcornsmp;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
@@ -38,6 +44,7 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     private static final String PREFIX = ChatColor.GOLD + "" + ChatColor.BOLD + "PopcornSMP" + ChatColor.RESET
             + ChatColor.DARK_GRAY + " » " + ChatColor.RESET;
     private static final double MOVEMENT_TOLERANCE = 0.5;
+    private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
     private static final Set<Material> UNSAFE_BLOCKS = EnumSet.of(
             Material.LAVA,
             Material.WATER,
@@ -208,7 +215,9 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
                 + ChatColor.GRAY + " gesendet. Sie läuft in " + ChatColor.GOLD + TPA_REQUEST_TIMEOUT_SECONDS
                 + ChatColor.GRAY + " Sekunden ab.");
         target.sendMessage(PREFIX + ChatColor.GOLD + player.getName() + ChatColor.GRAY
-                + " möchte sich zu dir teleportieren. Nutze " + ChatColor.GOLD + "/tpaccept"
+                + " möchte sich zu dir teleportieren.");
+        target.sendMessage(buildTeleportRequestButtons());
+        target.sendMessage(PREFIX + ChatColor.GRAY + "Nutze " + ChatColor.GOLD + "/tpaccept"
                 + ChatColor.GRAY + " oder " + ChatColor.GOLD + "/tpdeny" + ChatColor.GRAY + ".");
         target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, SoundCategory.MASTER, 1.0f, 1.0f);
 
@@ -359,6 +368,24 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
         }.runTaskTimer(PopcornSMPPlugin.this, 0L, 20L);
 
         pendingTeleportTasks.put(playerId, task);
+    }
+
+    private Component buildTeleportRequestButtons() {
+        Component prefixComponent = LEGACY_SERIALIZER.deserialize(PREFIX);
+        Component acceptButton = Component.text("[ANNEHMEN]", NamedTextColor.GREEN)
+                .decoration(TextDecoration.BOLD, true)
+                .clickEvent(ClickEvent.runCommand("/tpaccept"))
+                .hoverEvent(HoverEvent.showText(Component.text("Teleport annehmen", NamedTextColor.GREEN)));
+        Component denyButton = Component.text("[ABLEHNEN]", NamedTextColor.RED)
+                .decoration(TextDecoration.BOLD, true)
+                .clickEvent(ClickEvent.runCommand("/tpdeny"))
+                .hoverEvent(HoverEvent.showText(Component.text("Teleport ablehnen", NamedTextColor.RED)));
+
+        return prefixComponent
+                .append(Component.text(" "))
+                .append(acceptButton)
+                .append(Component.text(" "))
+                .append(denyButton);
     }
 
     private void prepareRandomTeleport(Player player) {
