@@ -16,7 +16,6 @@ import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -110,11 +109,6 @@ public final class PopcornSMPPlugin extends JavaPlugin implements Listener, Comm
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         event.quitMessage(buildJoinQuitMessage(event.getPlayer(), ChatColor.RED, "VERLASSEN"));
-    }
-
-    @EventHandler
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
-        event.setFormat(PREFIX + ChatColor.GRAY + "%1$s" + ChatColor.DARK_GRAY + ": " + ChatColor.WHITE + "%2$s");
     }
 
     @EventHandler
