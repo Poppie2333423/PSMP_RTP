@@ -38,7 +38,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class PopcornSMPPlugin extends JavaPlugin implements Listener, CommandExecutor {
 
-    private static final int SPAWN_RADIUS = 10_000;
+    private static final int SPAWN_RADIUS = 25_000;
     private static final int MAX_SPAWN_ATTEMPTS = 40;
     private static final int RTP_COUNTDOWN_SECONDS = 3;
     private static final int TPA_REQUEST_TIMEOUT_SECONDS = 60;
